@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	"golang.org/x/oauth2"
 )
 
 var (
@@ -57,11 +58,15 @@ func main() {
 	if len(repoParts) != 2 {
 		log.Fatalf("Expected GitHub repository name to be of the form <owner>/<repo>. '%s' is not.", repo)
 	}
+
+	ctx := context.TODO()
 	owner := repoParts[0]
 	repoName := repoParts[1]
+	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+	tokenClient := oauth2.NewClient(ctx, tokenSource)
+	client := github.NewClient(tokenClient)
 
-	client := github.NewClient(nil)
-	pullRequests, _, err := client.PullRequests.List(context.TODO(), owner, repoName, &github.PullRequestListOptions{})
+	pullRequests, _, err := client.PullRequests.List(ctx, owner, repoName, &github.PullRequestListOptions{})
 	if err != nil {
 		log.Fatalf("Failed to retrieve pull requests from %s: %v", repo, err)
 	}
@@ -72,7 +77,7 @@ func main() {
 
 	failureCount := 0
 	for _, pullRequest := range labeledPullRequests {
-		if err := checkAndMerge(context.TODO(), client, owner, repoName, pullRequest); err != nil {
+		if err := checkAndMerge(ctx, client, owner, repoName, pullRequest); err != nil {
 			log.Print(err)
 			failureCount++
 		}
