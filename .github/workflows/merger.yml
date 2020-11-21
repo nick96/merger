@@ -1,0 +1,17 @@
+# Run merger on a schedule to merge dependabot PRs.
+name: Merger
+on:
+  schedule:
+    # Run daily
+    - cron: 0 0 * * *
+jobs:
+  dependabot-prs:
+    name: Merge dependabot PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install merger
+        run: go get github.com/nick96/merger/v1
+      - name: Run merger
+        run: $(go env GOPATH)/bin/merger -label dependencies
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
