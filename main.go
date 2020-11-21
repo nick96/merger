@@ -109,26 +109,76 @@ func filterPullRequestsByLabel(pullRequests []*github.PullRequest, expectedLabel
 }
 
 func checkAndMerge(ctx context.Context, client *github.Client, owner, repoName string, pullRequest *github.PullRequest) error {
-	if pullRequest.GetMergeable() {
-		result, _, err := client.PullRequests.Merge(
+	checkRunResult, _, err := client.Checks.ListCheckRunsForRef(
+		ctx,
+		owner,
+		repoName,
+		pullRequest.GetHead().GetRef(),
+		&github.ListCheckRunsOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to get check run for pull request %d (branch %s): %w",
+			pullRequest.GetNumber(),
+			pullRequest.GetHead().GetLabel(),
+			err,
+		)
+	}
+	log.Printf(
+		"Found %d check runs for pull request %d",
+		checkRunResult.GetTotal(),
+		pullRequest.GetNumber(),
+	)
+
+	allChecksOk := true
+	for _, checkRun := range checkRunResult.CheckRuns {
+		status := checkRun.GetStatus()
+		if status == "completed" {
+			if checkRun.GetConclusion() == "success" {
+				log.Printf("Check run %d for pull request %d successfully completed.", checkRun.GetID(), pullRequest.GetNumber())
+			} else {
+				log.Printf(
+					"Check run %d for pull request %d was not successful (conclusion %s). Not merging it.",
+					checkRun.GetID(),
+					pullRequest.GetNumber(),
+					checkRun.GetConclusion(),
+				)
+				allChecksOk = false
+			}
+		} else {
+			log.Printf(
+				"Check run %d for pull request %d not yet completed (status %s). Not merging it.",
+				checkRun.GetID(),
+				pullRequest.GetNumber(),
+				status,
+			)
+			allChecksOk = false
+		}
+	}
+
+	if allChecksOk {
+		log.Printf("All checks for pull request %d passed", pullRequest.GetNumber())
+		if !pullRequest.GetMergeable() {
+			return fmt.Errorf(
+				"pull request %d it is not in a mergeable state (state %s)",
+				pullRequest.GetNumber(),
+				pullRequest.GetMergeableState(),
+			)
+		}
+
+		mergeResult, _, err := client.PullRequests.Merge(
 			ctx,
 			owner,
 			repoName,
 			pullRequest.GetNumber(),
-			"Merged by merged",
+			"Merged by merger",
 			&github.PullRequestOptions{},
 		)
 		if err != nil {
-			return fmt.Errorf("failed to merge mergeable pull request %d: %w", pullRequest.GetNumber(), err)
+			return fmt.Errorf("Failed to merge pull request %d: %w", pullRequest.GetNumber(), err)
 		}
-		log.Printf(
-			"Merged pull request %d into %s as commit %s",
-			pullRequest.GetNumber(),
-			pullRequest.GetBase().GetLabel(),
-			result.GetSHA(),
-		)
-	} else {
-		log.Printf("Pull request %d is not mergeable. Skipping.", pullRequest.GetNumber())
+		log.Printf("Successfully merged pull request %d as commit %s", pullRequest.GetNumber(), mergeResult.GetSHA())
 	}
+
 	return nil
 }
